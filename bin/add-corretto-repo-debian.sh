@@ -11,7 +11,7 @@ fi
 
 echo "Adding key from ${KEY_URL}"
 
-wget -O- https://apt.corretto.aws/corretto.key | apt-key add - 
+wget -O- "${KEY_URL}" | apt-key add - 
 
 if [[ $? -ne 0 ]]; then
     echo '[ERROR] Keyring modification failed'
