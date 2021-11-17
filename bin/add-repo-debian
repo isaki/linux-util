@@ -11,6 +11,7 @@ use Data::Dumper qw();
 
 use constant CORRETTO_BASE => q(https://apt.corretto.aws);
 use constant VSCODE_BASE => q(https://packages.microsoft.com);
+use constant GOOGLE_BASE => q(https://dl.google.com);
 
 use constant DEFAULT_TIMEOUT => 10;
 use constant APT_KEY_EXE => q(/usr/bin/apt-key);
@@ -23,7 +24,11 @@ our %REPOS = (
     'vscode' => RepoInfo->new(
         VSCODE_BASE . '/keys/microsoft.asc',
         VSCODE_BASE . '/repos/code',
-        'arch=amd64,arm64,armhf')
+        'arch=amd64,arm64,armhf'),
+    'google-chrome' => RepoInfo->new(
+        GOOGLE_BASE . '/linux/linux_signing_key.pub',
+        GOOGLE_BASE . '/linux/chrome/deb',
+        'arch=amd64')
 );
 
 # Option handling
@@ -79,6 +84,8 @@ foreach my $pair (@addRepos) {
     print STDOUT 'INFO: Creating list entry in ', APT_LIST_DIR, "\n";
     create_source_list($info, $name);
 }
+
+print STDOUT qq(\n*** Please run 'apt-get update' or 'apt update' to pick up these changes! ***\n\n);
 
 exit(0);
 
