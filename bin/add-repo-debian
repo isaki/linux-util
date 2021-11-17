@@ -6,7 +6,7 @@ use warnings;
 use LWP::UserAgent;
 use IO::File;
 use IO::Pipe;
-use GetOpt::Long qw(:config bundling pass_through);
+use Getopt::Long qw(:config bundling pass_through);
 use Data::Dumper qw();
 
 use constant CORRETTO_BASE => q(https://apt.corretto.aws);
@@ -16,25 +16,32 @@ use constant DEFAULT_TIMEOUT => 10;
 use constant APT_KEY_EXE => q(/usr/bin/apt-key);
 use constant APT_LIST_DIR => q(/etc/apt/sources.list.d);
 
-our %REPOS = {
+our %REPOS = (
     'corretto' => RepoInfo->new(
         CORRETTO_BASE . '/corretto.key',
-        CORRETTO),
+        CORRETTO_BASE),
     'vscode' => RepoInfo->new(
         VSCODE_BASE . '/keys/microsoft.asc',
         VSCODE_BASE . '/repos/code',
         'arch=amd64,arm64,armhf')
-};
+);
 
 # Option handling
-my ($help);
+my ($help, $timeout);
 GetOptions(
-    'h|help' => \$help
+    'h|help' => \$help,
+    't|timeout=i' => \$timeout
 ) or die 'Please run with --help to see valid usage';
 
 if ($help) {
     usage();
     exit(0);
+}
+
+if (defined $timeout) {
+    die 'Invalid --timeout' if ($timeout < 0);
+} else {
+    $timeout = DEFAULT_TIMEOUT;
 }
 
 my @addRepos;
@@ -55,13 +62,16 @@ die 'This must be run as root or via sudo' unless ($< == 0);
 
 # Main
 foreach my $pair (@addRepos) {
-    my $name = $pair[0];
-    my $info = $pair[1];
+    my $name = $pair->[0];
+    my $info = $pair->[1];
 
     print STDOUT 'INFO: Processing ', $name, "\n";
 
     print STDOUT 'INFO: Fetching key data', "\n";
     my $keyData = get_key($info, $timeout);
+
+    print STDOUT 'INFO: Key data:', "\n";
+    print STDOUT Data::Dumper::Dumper($keyData), "\n";
 
     print STDOUT 'INFO: Registering key data with apt', "\n";
     register_key($keyData) or die 'ERROR: Failed to register key', "\n";
@@ -98,6 +108,7 @@ sub register_key {
         $pipe->writer();
 
         $pipe->print($keyData);
+        $pipe->close();
 
         waitpid($pid, 0);
 
@@ -108,7 +119,9 @@ sub register_key {
         close(STDIN);
         open(STDIN, '<&', $pipe);
 
-        my @cmd = (APT_KEY_CMD, 'add', '-');
+        my @cmd = (APT_KEY_EXE, 'add', '-');
+
+        print STDOUT 'EXEC: ', join(' ', @cmd), "\n";
         exec(@cmd);
         exit($!);
     } else {
@@ -134,6 +147,25 @@ sub create_source_list {
     $fh->print(join(' ', @line), "\n");
 
     $fh->close or warn $!;
+
+    return 1;
+}
+
+sub usage {
+    (my $scriptname = $0) =~ s!^.*/!!;
+
+    print STDOUT <<__USAGE_END__;
+
+Usage: $scriptname
+
+    h|help          : Print this screen.
+    t|timeout <int> : HTTP(S) fetch timeout.
+
+Supported Repos:
+__USAGE_END__
+
+    print STDOUT ' - ', $_, "\n" foreach (sort keys %REPOS);
+    print STDOUT "\n";
 
     return 1;
 }
