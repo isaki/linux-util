@@ -1,0 +1,166 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+use LWP::UserAgent;
+use IO::File;
+use IO::Pipe;
+use GetOpt::Long qw(:config bundling pass_through);
+use Data::Dumper qw();
+
+use constant CORRETTO_BASE => q(https://apt.corretto.aws);
+use constant VSCODE_BASE => q(https://packages.microsoft.com);
+
+use constant DEFAULT_TIMEOUT => 10;
+use constant APT_KEY_EXE => q(/usr/bin/apt-key);
+use constant APT_LIST_DIR => q(/etc/apt/sources.list.d);
+
+our %REPOS = {
+    'corretto' => RepoInfo->new(
+        CORRETTO_BASE . '/corretto.key',
+        CORRETTO),
+    'vscode' => RepoInfo->new(
+        VSCODE_BASE . '/keys/microsoft.asc',
+        VSCODE_BASE . '/repos/code',
+        'arch=amd64,arm64,armhf')
+};
+
+# Option handling
+my ($help);
+GetOptions(
+    'h|help' => \$help
+) or die 'Please run with --help to see valid usage';
+
+if ($help) {
+    usage();
+    exit(0);
+}
+
+my @addRepos;
+if (scalar(@ARGV) == 0) {
+    die 'At least one repo must be specified; please run with --help to see valid repos';
+} else {
+    my %seen;
+    my @names = grep { ! $seen{$_}++ } @ARGV;
+
+    foreach my $n (@names) {
+        die 'Invalid repo: ', $n unless (defined $REPOS{$n});
+        push(@addRepos, [ $n, $REPOS{$n} ]);
+    }
+}
+
+# We must run as root.
+die 'This must be run as root or via sudo' unless ($< == 0);
+
+# Main
+foreach my $pair (@addRepos) {
+    my $name = $pair[0];
+    my $info = $pair[1];
+
+    print STDOUT 'INFO: Processing ', $name, "\n";
+
+    print STDOUT 'INFO: Fetching key data', "\n";
+    my $keyData = get_key($info, $timeout);
+
+    print STDOUT 'INFO: Registering key data with apt', "\n";
+    register_key($keyData) or die 'ERROR: Failed to register key', "\n";
+
+    print STDOUT 'INFO: Creating list entry in ', APT_LIST_DIR, "\n";
+    create_source_list($info, $name);
+}
+
+exit(0);
+
+#
+# Methods
+#
+sub get_key {
+    my ($info, $timeout) = @_;
+
+    my $userAgent = LWP::UserAgent->new();
+    $userAgent->timeout($timeout);
+
+    my $resp = $userAgent->get($info->getKey());
+
+    die 'ERROR: Failed to retrieve key', "\n", Data::Dumper::Dumper($resp) unless ($resp->is_success());
+
+    return $resp->content();
+}
+
+sub register_key {
+    my ($keyData) = @_;
+
+    my $pipe = IO::Pipe->new();
+    my $pid = undef;
+
+    if ($pid = fork()) {
+        $pipe->writer();
+
+        $pipe->print($keyData);
+
+        waitpid($pid, 0);
+
+        return ($? >> 8) == 0;
+    } elsif (defined $pid) {
+        $pipe->reader();
+
+        close(STDIN);
+        open(STDIN, '<&', $pipe);
+
+        my @cmd = (APT_KEY_CMD, 'add', '-');
+        exec(@cmd);
+        exit($!);
+    } else {
+        die $!;
+    }
+}
+
+sub create_source_list {
+    my ($info, $name) = @_;
+
+    my $file = APT_LIST_DIR . '/' . $name . '.list';
+
+    my $fh = IO::File->new();
+    $fh->open($file, 'w') or die 'ERROR: Failed to open ', $file, ' for write: ', $!;
+
+    my $opt = $info->getOptions();
+    my $repo = $info->getRepo();
+
+    my @line = qw(deb);
+    push(@line, '[' . $opt . ']') if (defined $opt);
+    push(@line, $repo, 'stable', 'main');
+
+    $fh->print(join(' ', @line), "\n");
+
+    $fh->close or warn $!;
+
+    return 1;
+}
+
+#
+# Objects
+#
+package RepoInfo;
+
+use strict;
+use warnings;
+
+sub new {
+    my $pkg = shift;
+    return bless([ @_ ], $pkg);
+}
+
+sub getKey {
+    return $_[0]->[0];
+}
+
+sub getRepo {
+    return $_[0]->[1];
+}
+
+sub getOptions {
+    my ($self) = @_;
+    my $count = scalar(@{$self});
+    return ($count > 2) ? $self->[2] : undef;
+}
