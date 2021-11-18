@@ -12,23 +12,38 @@ use Data::Dumper qw();
 use constant CORRETTO_BASE => q(https://apt.corretto.aws);
 use constant VSCODE_BASE => q(https://packages.microsoft.com);
 use constant GOOGLE_BASE => q(https://dl.google.com);
+use constant DOCKER_BASE => q(https://download.docker.com);
 
 use constant DEFAULT_TIMEOUT => 10;
 use constant APT_KEY_EXE => q(/usr/bin/apt-key);
 use constant APT_LIST_DIR => q(/etc/apt/sources.list.d);
+use constant LSB_RELEASE_EXE => q(/usr/bin/lsb_release);
+use constant DPKG_EXE => q(/usr/bin/dpkg);
 
 our %REPOS = (
     'corretto' => RepoInfo->new(
         CORRETTO_BASE . '/corretto.key',
-        CORRETTO_BASE),
+        CORRETTO_BASE,
+        'stable',
+        'main'),
     'vscode' => RepoInfo->new(
         VSCODE_BASE . '/keys/microsoft.asc',
         VSCODE_BASE . '/repos/code',
-        'arch=amd64,arm64,armhf'),
+        'stable',
+        'main',
+        'amd64,arm64,armhf'),
     'google-chrome' => RepoInfo->new(
         GOOGLE_BASE . '/linux/linux_signing_key.pub',
         GOOGLE_BASE . '/linux/chrome/deb',
-        'arch=amd64')
+        'stable',
+        'main',
+        \&dpkg_arch),
+    'docker' => RepoInfo->new(
+        DOCKER_BASE . '/linux/ubuntu/gpg',
+        DOCKER_BASE . '/linux/ubuntu',
+        \&lsb_release,
+        'stable',
+        \&dpkg_arch)
 );
 
 # Option handling
@@ -76,7 +91,7 @@ foreach my $pair (@addRepos) {
     my $keyData = get_key($info, $timeout);
 
     print STDOUT 'INFO: Key data:', "\n";
-    print STDOUT Data::Dumper::Dumper($keyData), "\n";
+    print STDOUT Data::Dumper::Dumper($keyData);
 
     print STDOUT 'INFO: Registering key data with apt', "\n";
     register_key($keyData) or die 'ERROR: Failed to register key', "\n";
@@ -144,18 +159,69 @@ sub create_source_list {
     my $fh = IO::File->new();
     $fh->open($file, 'w') or die 'ERROR: Failed to open ', $file, ' for write: ', $!;
 
-    my $opt = $info->getOptions();
+    my $arch = $info->getArch();
     my $repo = $info->getRepo();
+    my $c1 = $info->getComponentOne();
+    my $c2 = $info->getComponentTwo();
 
     my @line = qw(deb);
-    push(@line, '[' . $opt . ']') if (defined $opt);
-    push(@line, $repo, 'stable', 'main');
+    push(@line, '[arch=' . $arch . ']') if (defined $arch);
+    push(@line, $repo, $c1, $c2);
 
     $fh->print(join(' ', @line), "\n");
 
     $fh->close or warn $!;
 
     return 1;
+}
+
+sub dpkg_arch {
+    return load_single_line(DPKG_EXE, '--print-architecture');
+}
+
+sub lsb_release {
+    return load_single_line(LSB_RELEASE_EXE, '-cs');
+}
+
+sub load_single_line {
+    my (@cmd) = @_;
+
+    my $pipe = IO::Pipe->new();
+    my $pid = undef;
+
+    if ($pid = fork()) {
+        $pipe->reader();
+
+        my $capture = undef;
+        while (my $line = $pipe->getline()) {
+            $capture = $line;
+            chomp($capture);
+        }
+
+        $pipe->close();
+
+        waitpid($pid, 0);
+
+        if (($? >> 8) != 0) {
+            die 'Command execution failure';
+        }
+
+        print STDOUT 'INFO: Result ', Data::Dumper::Dumper($capture);
+
+        return $capture;
+    } elsif (defined $pid) {
+        $pipe->writer();
+
+        print STDOUT 'EXEC: ', join(' ', @cmd), "\n";
+        
+        close(STDOUT);
+        open(STDOUT, '>&', $pipe);
+
+        exec(@cmd);
+        exit($!);
+    } else {
+        die $!;
+    }
 }
 
 sub usage {
@@ -185,6 +251,8 @@ package RepoInfo;
 use strict;
 use warnings;
 
+use Carp qw();
+
 sub new {
     my $pkg = shift;
     return bless([ @_ ], $pkg);
@@ -198,8 +266,34 @@ sub getRepo {
     return $_[0]->[1];
 }
 
-sub getOptions {
+sub getComponentOne {
+    return $_[0]->_processRef(2);
+}
+
+sub getComponentTwo {
+    return $_[0]->_processRef(3);
+}
+
+sub getArch {
     my ($self) = @_;
     my $count = scalar(@{$self});
-    return ($count > 2) ? $self->[2] : undef;
+    return ($count > 4) ? $self->_processRef(4) : undef;
+}
+
+sub _processRef {
+    my ($self, $idx) = @_;
+
+    my $value = $self->[$idx];
+
+    # Nothing to do
+    return ($value) unless (ref($value));
+
+    my $resolved = $value->();
+
+    Carp::confess('Function pointer execution returned undefined at object index ', $idx) unless (defined $resolved);
+
+    # Cache the result
+    $self->[$idx] = $value;
+
+    return $resolved;
 }
