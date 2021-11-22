@@ -12,8 +12,7 @@ export GIT_SSH="/usr/bin/ssh"
 #
 # Version Tracking
 #
-version="1.0.0"
-
+version="1.0.1"
 
 #
 # The thing we want to execute
@@ -21,13 +20,7 @@ version="1.0.0"
 if [[ -n "${ECLIPSE_INSTALL_ROOT}" ]]; then
     eclipse=( "${ECLIPSE_INSTALL_ROOT}/eclipse" )
 else
-    tmp=$(which eclipse 2> /dev/null)
-
-    if [[ -n "${tmp}" ]]; then
-        eclipse=( "${tmp}" )
-    else
-        eclipse=( "${HOME}/opt/eclipse/eclipse" )
-    fi
+    eclipse=( "${HOME}/opt/eclipse/eclipse" )
 fi
 
 #
