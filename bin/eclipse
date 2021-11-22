@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# LICENSE: https://github.com/isaki-x/linux-util/blob/master/LICENSE
+
+#
+# Override environment
+#
+
+# Use OS supplied SSH
+export GIT_SSH="/usr/bin/ssh"
+
+#
+# Version Tracking
+#
+version="1.0.0"
+
+
+#
+# The thing we want to execute
+#
+if [[ -n "${ECLIPSE_INSTALL_ROOT}" ]]; then
+    eclipse=( "${ECLIPSE_INSTALL_ROOT}/eclipse" )
+else
+    tmp=$(which eclipse 2> /dev/null)
+
+    if [[ -n "${tmp}" ]]; then
+        eclipse=( "${tmp}" )
+    else
+        eclipse=( "${HOME}/opt/eclipse/eclipse" )
+    fi
+fi
+
+#
+# Argument Handling
+#
+if [[ -n "$1" ]]; then
+    eclipse+=( $@ )
+fi
+
+echo "Eclipse wrapper v${version}"
+
+# We should launch from our home dir, in case our PWD gets nuked, we don't
+# have to worry about Java/Eclipse dealing with that should it ever reference
+# PWD.
+
+echo "Setting working directory to '${HOME}'"
+cd "${HOME}" || exit $?
+
+echo "Launching: ${eclipse[@]}"
+exec ${eclipse[@]} > /dev/null 2>&1 &
+
+exit $?
+
+# vim: set tabstop=4 shiftwidth=4 softtabstop=4 expandtab : #
+
