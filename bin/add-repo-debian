@@ -6,7 +6,7 @@ use warnings;
 use LWP::UserAgent;
 use IO::File;
 use IO::Pipe;
-use Getopt::Long qw(:config bundling pass_through);
+use Getopt::Long qw(:config bundling pass_through version);
 use Data::Dumper qw();
 
 use constant CORRETTO_BASE => q(https://apt.corretto.aws);
@@ -19,6 +19,8 @@ use constant APT_KEY_EXE => q(/usr/bin/apt-key);
 use constant APT_LIST_DIR => q(/etc/apt/sources.list.d);
 use constant LSB_RELEASE_EXE => q(/usr/bin/lsb_release);
 use constant DPKG_EXE => q(/usr/bin/dpkg);
+
+our $VERSION = q(1.0.1);
 
 our %REPOS = (
     'corretto' => RepoInfo->new(
@@ -229,7 +231,7 @@ sub usage {
 
     print STDOUT <<__USAGE_END__;
 
-Usage: $scriptname
+Usage: $scriptname [--timeout <timeout>] <repo> [<repo>...]
 
     h|help          : Print this screen.
     t|timeout <int> : HTTP(S) fetch timeout.
