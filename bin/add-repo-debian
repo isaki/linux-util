@@ -20,7 +20,7 @@ use constant APT_LIST_DIR => q(/etc/apt/sources.list.d);
 use constant LSB_RELEASE_EXE => q(/usr/bin/lsb_release);
 use constant DPKG_EXE => q(/usr/bin/dpkg);
 
-our $VERSION = q(1.0.1);
+our $VERSION = q(1.0.2);
 
 our %REPOS = (
     'corretto' => RepoInfo->new(
@@ -239,7 +239,7 @@ Usage: $scriptname [--timeout <timeout>] <repo> [<repo>...]
 Supported Repos:
 __USAGE_END__
 
-    print STDOUT ' - ', $_, "\n" foreach (sort keys %REPOS);
+    print STDOUT '    ', $_, "\n" foreach (sort keys %REPOS);
     print STDOUT "\n";
 
     return 1;
