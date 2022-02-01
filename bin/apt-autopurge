@@ -1,0 +1,58 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use IO::Pipe;
+
+use constant DPKG_BIN => q(/usr/bin/dpkg);
+use constant APT_BIN => q(/usr/bin/apt-get);
+
+my $pkgList = get_package_list();
+if (scalar(@{$pkgList}) == 0) {
+    print STDOUT 'No packages to auto purge', "\n";
+    exit(0);
+}
+
+exec(APT_BIN, @{$pkgList}, @ARGV);
+exit($!);
+
+#
+# Methods
+#
+
+sub get_package_list {
+    my $pipe = IO::Pipe->new();
+    my $pid = undef;
+
+    if ($pid = fork()) {
+        $pipe->reader();
+
+        my @ret = ();
+
+        while (my $line = $pipe->getline()) {
+            if ($line =~ /^rc\s+(\S+)\s+/o) {
+                push(@ret, $1);
+            }
+        }
+
+        $pipe->close();
+
+        if (($? >> 8) != 0) {
+            die 'Unable to execute dpkg command';
+        }
+
+        return \@ret;
+    } elsif (defined $pid) {
+        $pipe->writer();
+
+        close(STDOUT);
+        open(STDOUT, q(>&), $pipe);
+
+        exec(DPKG_BIN, q(--list));
+        exit($!);
+    } else {
+        die 'Failure to fork: ', $!;
+    }
+}
+
+# vim: set tabstop=4 shiftwidth=4 softtabstop=4 expandtab : #
