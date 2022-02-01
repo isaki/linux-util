@@ -13,7 +13,7 @@ if (scalar(@{$pkgList}) == 0) {
     exit(0);
 }
 
-exec(APT_BIN, @{$pkgList}, @ARGV);
+exec(APT_BIN, q(purge), @{$pkgList}, @ARGV);
 exit($!);
 
 #
