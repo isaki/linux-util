@@ -40,6 +40,13 @@ if (scalar(@volumes) == 0) {
 
 my @errors = grep { ! resize_volume($_) } @volumes;
 
+if (scalar(@errors) > 0) {
+    print STDOUT '[ERROR] Failed to fully resize ', $_, "\n" foreach (@errors);
+    exit(2);
+}
+
+exit(0);
+
 sub resize_volume {
     my ($v) = @_;
 
