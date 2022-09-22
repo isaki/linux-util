@@ -1,0 +1,134 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use IO::Pipe;
+
+use constant MAPPER_DIR => q(/dev/mapper);
+
+our %FS_RESIZE_CMD = (
+    'ext4' => [ 'resize2fs' ]
+);
+
+# Shared commands, just do pointers
+$FS_RESIZE_CMD{$_} = $FS_RESIZE_CMD{'ext4'} foreach (qw(ext2 ext3));
+
+if ($< != 0) {
+    print STDERR 'This must be run as root or via sudo.', "\n";
+    exit(-1);
+}
+
+opendir(DIR, MAPPER_DIR) or die $!;
+
+my @volumes;
+while (my $entry = readdir(DIR)) {
+    next if ($entry =~ /^\./o);
+    my $fp = join('/', MAPPER_DIR, $entry);
+    if (-l $fp) {
+        push(@volumes, $fp);
+    }
+}
+
+closedir(DIR) or warn $!;
+
+@volumes = grep { get_approval($_) } @volumes;
+
+if (scalar(@volumes) == 0) {
+    print STDOUT 'Nothing to do.', "\n";
+    exit(0);
+}
+
+my @errors = grep { ! resize_volume($_) } @volumes;
+
+sub resize_volume {
+    my ($v) = @_;
+
+    # We need to determine what file system we are using.
+    my $fs = get_fs_type_for_volume($v);
+    if (! defined $fs) {
+        print STDOUT 'Unable to locate fs type for ', $v, "\n";
+        return 0;
+    }
+
+    print STDOUT '[INFO] Filesystem for ', $v, ' is \'', $fs, "'\n";
+
+    # We need to make sure we support the fs type
+    if (! exists $FS_RESIZE_CMD{$fs}) {
+        print STDOUT 'Unsupported fs type ', $fs, ' for ', $v, "\n";
+        return 0;
+    }
+
+    # Alright, now we can safely proceed.
+    system_x(undef, 'lvextend', '-l', '+100%FREE', $v) or return 0;
+
+    # Resize the FS.
+    system_x(undef, @{$FS_RESIZE_CMD{$fs}}, $v) or return 0;
+
+    return 1;
+}
+
+sub get_fs_type_for_volume {
+    my ($v) = @_;
+
+    my $fs = undef;
+
+    my $callback = sub {
+        $fs = $_[0];
+        chomp($fs);
+        return 1;
+    };
+
+    my $check = system_x($callback, 'df', '--output=fstype', $v);
+    return ($check) ? $fs : undef;
+}
+
+sub get_approval {
+    my ($v) = @_;
+
+    print STDERR 'Execute ', $v, ' (y/N): ';
+    my $line = <STDIN>;
+
+    if (defined $line && $line =~ /^y(?:es)?\s*$/i) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+sub system_x {
+    my ($callback, @cmd) = @_;
+
+    $callback ||= sub { return 1; };
+
+    my $pid = undef;
+
+    my $pipe = IO::Pipe->new();
+    if ($pid = fork()) {
+        $pipe->reader();
+
+        while (my $line = $pipe->getline()) {
+            $callback->($line);
+        }
+
+        $pipe->close();
+        waitpid($pid, 0);
+
+        if (($? >> 8) != 0) {
+            return 0;
+        }
+    } elsif (defined $pid) {
+        print STDOUT '[EXEC] ', join(' ', @cmd), "\n";
+
+        $pipe->writer();
+        STDOUT->close();
+
+        open(STDOUT, '>&', $pipe);
+
+        exec(@cmd);
+        exit($!);
+    } else {
+        die $!;
+    }
+
+    return 1;
+}
