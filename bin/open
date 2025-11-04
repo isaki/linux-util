@@ -1,0 +1,27 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+
+die 'Running as root is forbidden' if ($< == 0);
+die 'Running outside a desktop session is forbidden' unless (defined $ENV{'XDG_CURRENT_DESKTOP'});
+
+my $argc = scalar(@ARGV);
+die 'Invalid usage' if ($argc == 0);
+
+my @cmd;
+$#cmd = $argc;
+
+$cmd[0] = 'xdg-open';
+
+for (my $i = 0; $i < $argc; ++$i) {
+    my $x = $ARGV[0];
+    $cmd[$i + 1] = ($x =~ /^-/ || $x =~ /^\S+:\/\//) ? $x : abs_path($x);
+}
+
+print STDERR '[EXEC] ', join(' ', @cmd), qq(\n);
+exec(@cmd);
+exit($!);
+
