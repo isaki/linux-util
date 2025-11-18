@@ -4,24 +4,80 @@ use strict;
 use warnings;
 
 use Cwd qw(abs_path);
+use IO::File;
+
+use constant XDG_MODE => 1;
+use constant WSL_MODE => 2;
+
+use constant WSLINFO => q(/usr/bin/wslinfo);
+use constant WSLINFO_TARGET => q(/init);
 
 die 'Running as root is forbidden' if ($< == 0);
-die 'Running outside a desktop session is forbidden' unless (defined $ENV{'XDG_CURRENT_DESKTOP'});
 
 my $argc = scalar(@ARGV);
 die 'Invalid usage' if ($argc == 0);
 
+my $mode = get_mode();
+
 my @cmd;
 $#cmd = $argc;
 
-$cmd[0] = 'xdg-open';
-
-for (my $i = 0; $i < $argc; ++$i) {
-    my $x = $ARGV[0];
-    $cmd[$i + 1] = ($x =~ /^-/ || $x =~ /^\S+:\/\//) ? $x : abs_path($x);
+if ($mode == XDG_MODE) {
+    die 'Running outside a desktop session is forbidden' unless (defined $ENV{'XDG_CURRENT_DESKTOP'});
+    $cmd[0] = 'xdg-open';
+    populate_xdg_cmd(\@cmd, \@ARGV, $argc);
+} elsif ($mode == WSL_MODE) {
+    $cmd[0] = 'explorer.exe';
+    populate_wsl_cmd(\@cmd, \@ARGV, $argc);
+} else {
+    die 'Unable to determine operating mode';
 }
 
 print STDERR '[EXEC] ', join(' ', @cmd), qq(\n);
 exec(@cmd);
 exit($!);
 
+sub get_mode {
+
+    if (-l WSLINFO) {
+        my $path = readlink(WSLINFO);
+
+        if (defined $path) {
+            return WSL_MODE if ($path eq WSLINFO_TARGET);
+        } else {
+            print STDERR 'Failed to determine symlink target for ',
+                WSLINFO,
+                ': ',
+                $!,
+                "\n";
+
+            return 0;
+        }
+    }
+
+    return XDG_MODE;
+}
+
+# void populate_xdg_command(char** cmd, const char** argv, const size_t argv)
+sub populate_xdg_cmd {
+    my ($cmd, $argv, $argc) = @_;
+
+    for (my $i = 0; $i < $argc; ++$i) {
+        # This copy makes the code easier to read.
+        my $x = $argv->[$i];
+        $cmd->[$i + 1] = ($x =~ /^-/ || $x =~ /^\S+:\/\//) ? $x : abs_path($x);
+    }
+
+    return undef;
+}
+
+# void populate_wsl_command(char** cmd, const char** argv, const size_t argv)
+sub populate_wsl_cmd {
+    my ($cmd, $argv, $argc) = @_;
+
+    for (my $i = 0; $i < $argc; ++$i) {
+        $cmd->[$i + 1] = $argv->[$i];
+    }
+
+    return undef;
+}
