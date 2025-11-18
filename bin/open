@@ -3,14 +3,22 @@
 use strict;
 use warnings;
 
-use Cwd qw(abs_path);
+use Cwd qw();
 use IO::File;
+use IO::Pipe;
 
+# Modes
 use constant XDG_MODE => 1;
 use constant WSL_MODE => 2;
 
+# XDG Support
+use constant XDG_CMD => q(xdg-open);
+
+# WSL Support
 use constant WSLINFO => q(/usr/bin/wslinfo);
 use constant WSLINFO_TARGET => q(/init);
+use constant WSLPATH => q(wslpath);
+use constant WSL_CMD => q(explorer.exe);
 
 die 'Running as root is forbidden' if ($< == 0);
 
@@ -24,11 +32,11 @@ $#cmd = $argc;
 
 if ($mode == XDG_MODE) {
     die 'Running outside a desktop session is forbidden' unless (defined $ENV{'XDG_CURRENT_DESKTOP'});
-    $cmd[0] = 'xdg-open';
-    populate_xdg_cmd(\@cmd, \@ARGV, $argc);
+    $cmd[0] = XDG_CMD;
+    populate_cmd(\@cmd, \@ARGV, $argc, \&Cwd::abs_path);
 } elsif ($mode == WSL_MODE) {
-    $cmd[0] = 'explorer.exe';
-    populate_wsl_cmd(\@cmd, \@ARGV, $argc);
+    $cmd[0] = WSL_CMD;
+    populate_cmd(\@cmd, \@ARGV, $argc, \&_wslpath);
 } else {
     die 'Unable to determine operating mode';
 }
@@ -58,26 +66,56 @@ sub get_mode {
     return XDG_MODE;
 }
 
-# void populate_xdg_command(char** cmd, const char** argv, const size_t argv)
-sub populate_xdg_cmd {
-    my ($cmd, $argv, $argc) = @_;
+# void populate_xdg_command(char** cmd, const char** argv, const size_t argv, char* (*pfix)(const char*))
+sub populate_cmd {
+    my ($cmd, $argv, $argc, $pfix) = @_;
 
     for (my $i = 0; $i < $argc; ++$i) {
         # This copy makes the code easier to read.
         my $x = $argv->[$i];
-        $cmd->[$i + 1] = ($x =~ /^-/ || $x =~ /^\S+:\/\//) ? $x : abs_path($x);
+        $cmd->[$i + 1] = ($x =~ /^-/ || $x =~ /^\S+:\/\//) ? $x : $pfix->($x);
     }
 
     return undef;
 }
 
-# void populate_wsl_command(char** cmd, const char** argv, const size_t argv)
-sub populate_wsl_cmd {
-    my ($cmd, $argv, $argc) = @_;
+sub _wslpath {
+    my ($path) = @_;
 
-    for (my $i = 0; $i < $argc; ++$i) {
-        $cmd->[$i + 1] = $argv->[$i];
+    my $pid = undef;
+    my $pipe = IO::Pipe->new();
+
+    if ($pid = fork()) {
+        $pipe->reader();
+
+        my $ret = undef;
+        my $i = 0;
+
+        while (my $line = $pipe->getline()) {
+            $ret = $line;
+            ++$i;
+        }
+
+        $pipe->close();
+
+        waitpid($pid, 0);
+
+        if (($? >> 8) == 0 && $i == 1) {
+            chomp($ret);
+            return $ret;
+        } else {
+            return $path;
+        }
+    } elsif (defined $pid) {
+        $pipe->writer();
+        STDOUT->close();
+
+        open(STDOUT, q(>&), $pipe);
+        exec(WSLPATH, q(-w), $path);
+        exit($!);
+    } else {
+        die $!;
     }
 
-    return undef;
+    die;
 }
