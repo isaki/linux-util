@@ -4,7 +4,6 @@ use strict;
 use warnings;
 
 use Cwd qw();
-use IO::File;
 use IO::Pipe;
 
 # Modes
@@ -36,7 +35,7 @@ if ($mode == XDG_MODE) {
     populate_cmd(\@cmd, \@ARGV, $argc, \&Cwd::abs_path);
 } elsif ($mode == WSL_MODE) {
     $cmd[0] = WSL_CMD;
-    populate_cmd(\@cmd, \@ARGV, $argc, \&_wslpath);
+    populate_cmd(\@cmd, \@ARGV, $argc, \&wslpath);
 } else {
     die 'Unable to determine operating mode';
 }
@@ -79,7 +78,7 @@ sub populate_cmd {
     return undef;
 }
 
-sub _wslpath {
+sub wslpath {
     my ($path) = @_;
 
     my $pid = undef;
