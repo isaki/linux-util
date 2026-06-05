@@ -3,7 +3,6 @@
 use strict;
 use warnings;
 
-use Cwd qw();
 use IO::Pipe;
 
 # Modes
@@ -32,10 +31,10 @@ $#cmd = $argc;
 if ($mode == XDG_MODE) {
     die 'Running outside a desktop session is forbidden' unless (defined $ENV{'XDG_CURRENT_DESKTOP'});
     $cmd[0] = XDG_CMD;
-    populate_cmd(\@cmd, \@ARGV, $argc, \&Cwd::abs_path);
+    populate_xdg_cmd(\@cmd, \@ARGV, $argc);
 } elsif ($mode == WSL_MODE) {
     $cmd[0] = WSL_CMD;
-    populate_cmd(\@cmd, \@ARGV, $argc, \&wslpath);
+    populate_wsl_cmd(\@cmd, \@ARGV, $argc, \&wslpath);
 } else {
     die 'Unable to determine operating mode';
 }
@@ -65,8 +64,19 @@ sub get_mode {
     return XDG_MODE;
 }
 
-# void populate_xdg_command(char** cmd, const char** argv, const size_t argv, char* (*pfix)(const char*))
-sub populate_cmd {
+# void populate_xdg_cmd(char** cmd, const char** argv, const size_t argv)
+sub populate_xdg_cmd {
+    my ($cmd, $argv, $argc) = @_;
+
+    for (my $i = 0; $i < $argc; ++$i) {
+        $cmd[$i + 1] = $argv->[$i];
+    }
+
+    return undef;
+}
+
+# void populate_wsl_cmd(char** cmd, const char** argv, const size_t argv, char* (*pfix)(const char*))
+sub populate_wsl_cmd {
     my ($cmd, $argv, $argc, $pfix) = @_;
 
     for (my $i = 0; $i < $argc; ++$i) {
